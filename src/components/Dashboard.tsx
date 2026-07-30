@@ -7,441 +7,134 @@ import FriendsList from "./FriendsList";
 import LevelsGrid from "./LevelsGrid";
 import ProfileModal from "./ProfileModal";
 
-type Screen = "home" | "play-ai" | "play-pvp" | "levels" | "daily" | "friends" | "profile";
+type Screen = "home" | "ai" | "pvp" | "levels" | "friends";
+interface Inv { id: string; gameId: string; from: { id: string; username: string; displayName: string; avatar: string }; createdAt: string; }
 
-interface DashboardProps {
-  user: UserData;
-  onLogout: () => void;
-  onUserUpdate: (user: UserData) => void;
-}
-
-interface GameInvitation {
-  id: string;
-  gameId: string;
-  from: { id: string; username: string; displayName: string; avatar: string };
-  createdAt: string;
-}
-
-export default function Dashboard({ user, onLogout, onUserUpdate }: DashboardProps) {
+export default function Dashboard({ user, onLogout, onUserUpdate }: { user: UserData; onLogout: () => void; onUserUpdate: (u: UserData) => void }) {
   const [screen, setScreen] = useState<Screen>("home");
-  const [aiDifficulty, setAiDifficulty] = useState<string>("medium");
   const [gameId, setGameId] = useState<string | null>(null);
-  const [pvpGameId, setPvpGameId] = useState<string | null>(null);
-  const [selectedLevel, setSelectedLevel] = useState<number | null>(null);
-  const [isDaily, setIsDaily] = useState(false);
-  const [invitations, setInvitations] = useState<GameInvitation[]>([]);
+  const [pvpId, setPvpId] = useState<string | null>(null);
+  const [selLevel, setSelLevel] = useState<number | null>(null);
+  const [daily, setDaily] = useState(false);
+  const [invs, setInvs] = useState<Inv[]>([]);
   const [toast, setToast] = useState<string | null>(null);
   const [showProfile, setShowProfile] = useState(false);
+  const tf: React.CSSProperties = { fontFamily: "'Architects Daughter', cursive" };
 
-  const showToast = (msg: string) => {
-    setToast(msg);
-    setTimeout(() => setToast(null), 3000);
+  const flash = (m: string) => { setToast(m); setTimeout(() => setToast(null), 3000); };
+  const fetchInvs = useCallback(async () => { try { const r = await fetch("/api/invitations"); if (r.ok) { const d = await r.json(); setInvs(d.invitations || []); } } catch { /* */ } }, []);
+  useEffect(() => { fetchInvs(); const t = setInterval(fetchInvs, 5000); return () => clearInterval(t); }, [fetchInvs]);
+  const refreshUser = async () => { try { const r = await fetch("/api/auth/me"); if (r.ok) { const d = await r.json(); if (d.user) onUserUpdate(d.user); } } catch { /* */ } };
+
+  const [aiDiff, setAiDiff] = useState("medium");
+
+  const startAi = async (diff: string, level?: number, isDaily?: boolean) => {
+    try {
+      const r = await fetch("/api/game/ai", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "create", difficulty: diff, level: level || null, isDaily: isDaily || false }) });
+      const d = await r.json();
+      if (d.game) { setGameId(d.game.id); setSelLevel(level || null); setDaily(isDaily || false); setAiDiff(diff); setScreen("ai"); }
+    } catch { flash("Failed"); }
   };
 
-  const fetchInvitations = useCallback(async () => {
-    try {
-      const res = await fetch("/api/invitations");
-      if (res.ok) {
-        const data = await res.json();
-        setInvitations(data.invitations || []);
-      }
-    } catch { /* ignore */ }
-  }, []);
-
-  useEffect(() => {
-    fetchInvitations();
-    const interval = setInterval(fetchInvitations, 5000);
-    return () => clearInterval(interval);
-  }, [fetchInvitations]);
-
-  const startAiGame = async (difficulty: string, level?: number, daily?: boolean) => {
-    try {
-      const res = await fetch("/api/game/ai", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "create",
-          difficulty,
-          level: level || null,
-          isDaily: daily || false,
-        }),
-      });
-      const data = await res.json();
-      if (data.game) {
-        setGameId(data.game.id);
-        setAiDifficulty(difficulty);
-        setSelectedLevel(level || null);
-        setIsDaily(daily || false);
-        setScreen("play-ai");
-      }
-    } catch {
-      showToast("Failed to start game");
-    }
+  const startPvp = async (opp: string) => {
+    try { const r = await fetch("/api/game/pvp", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "create", opponentUsername: opp }) }); const d = await r.json(); if (d.game) { setPvpId(d.game.id); setScreen("pvp"); flash("Invitation sent!"); } else flash(d.error || "Failed"); } catch { flash("Failed"); }
   };
-
-  const startPvpGame = async (opponentUsername: string) => {
-    try {
-      const res = await fetch("/api/game/pvp", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "create", opponentUsername }),
-      });
-      const data = await res.json();
-      if (data.game) {
-        setPvpGameId(data.game.id);
-        setScreen("play-pvp");
-        showToast("Invitation sent!");
-      } else {
-        showToast(data.error || "Failed to create game");
-      }
-    } catch {
-      showToast("Failed to start game");
-    }
+  const acceptInv = async (invId: string, gId: string) => {
+    try { const r = await fetch("/api/invitations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ invitationId: invId, action: "accept" }) }); const d = await r.json(); if (d.success) { setPvpId(gId); setScreen("pvp"); fetchInvs(); flash("Game on — you are O"); } } catch { flash("Failed"); }
   };
+  const declineInv = async (invId: string) => { try { await fetch("/api/invitations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ invitationId: invId, action: "decline" }) }); fetchInvs(); } catch { /* */ } };
+  const back = () => { setScreen("home"); setGameId(null); setPvpId(null); refreshUser(); };
 
-  const acceptInvitation = async (invitationId: string, invGameId: string) => {
-    try {
-      const res = await fetch("/api/invitations", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ invitationId, action: "accept" }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setPvpGameId(invGameId);
-        setScreen("play-pvp");
-        fetchInvitations();
-        showToast("Game accepted! You play as O");
-      }
-    } catch {
-      showToast("Failed to accept invitation");
-    }
-  };
+  if (screen === "ai" && gameId) return (
+    <Page onBack={back}>
+      <GameBoard
+        gameId={gameId}
+        mode="ai"
+        user={user}
+        level={selLevel}
+        isDaily={daily}
+        onGameEnd={refreshUser}
+        onNextLevel={(nextLvl: number) => {
+          refreshUser();
+          const diff = nextLvl <= 20 ? "easy" : nextLvl <= 60 ? "medium" : "hard";
+          startAi(diff, nextLvl);
+        }}
+        onRetry={() => {
+          if (selLevel) {
+            const diff = selLevel <= 20 ? "easy" : selLevel <= 60 ? "medium" : "hard";
+            startAi(diff, selLevel);
+          }
+        }}
+        onPlayAgain={() => {
+          startAi(aiDiff, undefined, daily);
+        }}
+      />
+    </Page>
+  );
+  if (screen === "pvp" && pvpId) return <Page onBack={back}><GameBoard gameId={pvpId} mode="pvp" user={user} onGameEnd={refreshUser} /></Page>;
+  if (screen === "levels") return <Page onBack={() => setScreen("home")}><LevelsGrid currentLevel={user.currentLevel} onSelectLevel={(l: number) => startAi(l <= 20 ? "easy" : l <= 60 ? "medium" : "hard", l)} /></Page>;
+  if (screen === "friends") return <Page onBack={() => setScreen("home")}><FriendsList onInvite={(u: string) => startPvp(u)} showToast={flash} /></Page>;
 
-  const declineInvitation = async (invitationId: string) => {
-    try {
-      await fetch("/api/invitations", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ invitationId, action: "decline" }),
-      });
-      fetchInvitations();
-    } catch { /* ignore */ }
-  };
-
-  const refreshUser = async () => {
-    try {
-      const res = await fetch("/api/auth/me");
-      if (res.ok) {
-        const data = await res.json();
-        if (data.user) onUserUpdate(data.user);
-      }
-    } catch { /* ignore */ }
-  };
-
-  // Render screens
-  if (screen === "play-ai" && gameId) {
-    return (
-      <div className="min-h-screen p-4" style={{ background: "#e0e5ec" }}>
-        <div className="max-w-lg mx-auto">
-          <button
-            onClick={() => { setScreen("home"); setGameId(null); refreshUser(); }}
-            className="neo-btn mb-4 text-sm px-4 py-2"
-          >
-            ← Back
-          </button>
-          <GameBoard
-            gameId={gameId}
-            mode="ai"
-            user={user}
-            level={selectedLevel}
-            isDaily={isDaily}
-            onGameEnd={() => refreshUser()}
-          />
-        </div>
-      </div>
-    );
-  }
-
-  if (screen === "play-pvp" && pvpGameId) {
-    return (
-      <div className="min-h-screen p-4" style={{ background: "#e0e5ec" }}>
-        <div className="max-w-lg mx-auto">
-          <button
-            onClick={() => { setScreen("home"); setPvpGameId(null); refreshUser(); }}
-            className="neo-btn mb-4 text-sm px-4 py-2"
-          >
-            ← Back
-          </button>
-          <GameBoard
-            gameId={pvpGameId}
-            mode="pvp"
-            user={user}
-            onGameEnd={() => refreshUser()}
-          />
-        </div>
-      </div>
-    );
-  }
-
-  if (screen === "levels") {
-    return (
-      <div className="min-h-screen p-4" style={{ background: "#e0e5ec" }}>
-        <div className="max-w-lg mx-auto">
-          <button
-            onClick={() => setScreen("home")}
-            className="neo-btn mb-4 text-sm px-4 py-2"
-          >
-            ← Back
-          </button>
-          <LevelsGrid
-            currentLevel={user.currentLevel}
-            onSelectLevel={(level: number) => {
-              const difficulty = level <= 20 ? "easy" : level <= 60 ? "medium" : "hard";
-              startAiGame(difficulty, level);
-            }}
-          />
-        </div>
-      </div>
-    );
-  }
-
-  if (screen === "friends") {
-    return (
-      <div className="min-h-screen p-4" style={{ background: "#e0e5ec" }}>
-        <div className="max-w-lg mx-auto">
-          <button
-            onClick={() => setScreen("home")}
-            className="neo-btn mb-4 text-sm px-4 py-2"
-          >
-            ← Back
-          </button>
-          <FriendsList
-            onInvite={(username: string) => startPvpGame(username)}
-            showToast={showToast}
-          />
-        </div>
-      </div>
-    );
-  }
-
-  // Home screen
   return (
-    <div className="min-h-screen p-4" style={{ background: "#e0e5ec" }}>
-      {toast && (
-        <div className="toast neo-card" style={{ background: "linear-gradient(145deg, #7d6ef0, #5b4ed6)", color: "white" }}>
-          {toast}
-        </div>
-      )}
+    <div className="min-h-screen p-4">
+      {toast && <div className="toast-msg">{toast}</div>}
+      {showProfile && <ProfileModal user={user} onClose={() => setShowProfile(false)} onUpdate={(u: UserData) => { onUserUpdate(u); setShowProfile(false); }} />}
 
-      {showProfile && (
-        <ProfileModal
-          user={user}
-          onClose={() => setShowProfile(false)}
-          onUpdate={(updatedUser: UserData) => {
-            onUserUpdate(updatedUser);
-            setShowProfile(false);
-          }}
-        />
-      )}
-
-      <div className="max-w-lg mx-auto">
+      <div style={{ maxWidth: 460, margin: "0 auto", paddingLeft: 40 }}>
         {/* Header */}
-        <div className="neo-card mb-6 animate-fade-in">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => setShowProfile(true)}
-                className="text-3xl cursor-pointer hover:scale-110 transition-transform"
-                title="Edit Profile"
-              >
-                {user.avatar}
-              </button>
+        <div className="neo anim-in" style={{ marginBottom: 20 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <button onClick={() => setShowProfile(true)} className="neo-in" style={{ fontSize: 28, border: "none", cursor: "pointer", padding: 8, borderRadius: 14, background: "var(--bg)" }}>{user.avatar}</button>
               <div>
-                <h2 className="font-bold text-lg" style={{ color: "#2d3748" }}>
-                  {user.displayName}
-                </h2>
-                <p className="text-xs" style={{ color: "#718096" }}>
-                  @{user.username}
-                </p>
+                <h2 style={{ ...tf, fontSize: 24, color: "var(--ink)", lineHeight: 1.1 }}>{user.displayName}</h2>
+                <p style={{ fontSize: 13, color: "var(--ink-light)" }}>@{user.username}</p>
               </div>
             </div>
-            <button onClick={onLogout} className="neo-btn text-xs px-3 py-2">
-              Logout
-            </button>
+            <button onClick={onLogout} className="neo-btn" style={{ fontSize: 13, padding: "6px 14px", fontFamily: "inherit" }}>logout</button>
           </div>
 
-          {/* Stats */}
-          <div className="grid grid-cols-4 gap-3 mt-4">
-            <div className="neo-pressed p-3 text-center rounded-xl">
-              <div className="text-lg font-bold" style={{ color: "#00b894" }}>{user.wins}</div>
-              <div className="text-xs" style={{ color: "#718096" }}>Wins</div>
-            </div>
-            <div className="neo-pressed p-3 text-center rounded-xl">
-              <div className="text-lg font-bold" style={{ color: "#e17055" }}>{user.losses}</div>
-              <div className="text-xs" style={{ color: "#718096" }}>Losses</div>
-            </div>
-            <div className="neo-pressed p-3 text-center rounded-xl">
-              <div className="text-lg font-bold" style={{ color: "#fdcb6e" }}>{user.draws}</div>
-              <div className="text-xs" style={{ color: "#718096" }}>Draws</div>
-            </div>
-            <div className="neo-pressed p-3 text-center rounded-xl">
-              <div className="text-lg font-bold" style={{ color: "#6c5ce7" }}>{user.currentLevel}</div>
-              <div className="text-xs" style={{ color: "#718096" }}>Level</div>
-            </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8, marginTop: 14 }}>
+            {([["W", user.wins, "--green"], ["L", user.losses, "--red"], ["D", user.draws, "--ink-mid"], ["Lv", user.currentLevel, "--blue"]] as const).map(([l, v, c]) => (
+              <div key={l} className="stat-neo">
+                <div style={{ ...tf, fontSize: 22, color: `var(${c})` }}>{v}</div>
+                <div style={{ fontSize: 11, color: "var(--ink-light)", marginTop: 2 }}>{l}</div>
+              </div>
+            ))}
           </div>
         </div>
 
-        {/* Game Invitations */}
-        {invitations.length > 0 && (
-          <div className="neo-card mb-6 animate-slide-up">
-            <h3 className="font-bold mb-3 flex items-center gap-2" style={{ color: "#2d3748" }}>
-              📬 Game Invitations
-              <span
-                className="inline-flex items-center justify-center w-5 h-5 text-xs rounded-full text-white"
-                style={{ background: "#e17055" }}
-              >
-                {invitations.length}
-              </span>
+        {/* Invitations */}
+        {invs.length > 0 && (
+          <div className="neo anim-slide" style={{ marginBottom: 20 }}>
+            <h3 style={{ ...tf, fontSize: 20, color: "var(--red)", marginBottom: 10 }}>
+              📬 Invitations
+              <span style={{ marginLeft: 8, background: "var(--red)", color: "#fff", padding: "2px 10px", borderRadius: 8, fontSize: 13, fontFamily: "inherit" }}>{invs.length}</span>
             </h3>
-            <div className="space-y-2">
-              {invitations.map((inv) => (
-                <div key={inv.id} className="neo-pressed p-3 rounded-xl flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xl">{inv.from.avatar}</span>
-                    <div>
-                      <p className="text-sm font-semibold" style={{ color: "#2d3748" }}>{inv.from.displayName}</p>
-                      <p className="text-xs" style={{ color: "#718096" }}>wants to play!</p>
-                    </div>
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => acceptInvitation(inv.id, inv.gameId)}
-                      className="neo-btn-accent text-xs px-3 py-1 rounded-lg"
-                    >
-                      Accept
-                    </button>
-                    <button
-                      onClick={() => declineInvitation(inv.id)}
-                      className="neo-btn-danger text-xs px-3 py-1 rounded-lg"
-                    >
-                      Decline
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
+            {invs.map((inv) => (
+              <div key={inv.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0" }}>
+                <span style={{ fontSize: 15 }}>{inv.from.avatar} <strong>{inv.from.displayName}</strong></span>
+                <span style={{ display: "flex", gap: 6 }}>
+                  <button onClick={() => acceptInv(inv.id, inv.gameId)} className="neo-btn-green" style={{ fontSize: 12, padding: "5px 12px", fontFamily: "inherit" }}>✓ play</button>
+                  <button onClick={() => declineInv(inv.id)} className="neo-btn-red" style={{ fontSize: 12, padding: "5px 12px", fontFamily: "inherit" }}>✗</button>
+                </span>
+              </div>
+            ))}
           </div>
         )}
 
         {/* Game Modes */}
-        <div className="space-y-4">
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           {/* VS Computer */}
-          <div className="neo-card animate-slide-up">
-            <h3 className="font-bold text-lg mb-3 flex items-center gap-2" style={{ color: "#2d3748" }}>
-              🤖 Play vs Computer
-            </h3>
-            <div className="grid grid-cols-3 gap-3">
-              <button
-                onClick={() => startAiGame("easy")}
-                className="neo-btn py-4 text-center rounded-xl"
-              >
-                <div className="text-2xl mb-1">🌱</div>
-                <div className="text-xs font-semibold">Easy</div>
-              </button>
-              <button
-                onClick={() => startAiGame("medium")}
-                className="neo-btn py-4 text-center rounded-xl"
-              >
-                <div className="text-2xl mb-1">⚡</div>
-                <div className="text-xs font-semibold">Medium</div>
-              </button>
-              <button
-                onClick={() => startAiGame("hard")}
-                className="neo-btn py-4 text-center rounded-xl"
-              >
-                <div className="text-2xl mb-1">🔥</div>
-                <div className="text-xs font-semibold">Hard</div>
-              </button>
+          <div className="neo anim-slide">
+            <h3 style={{ ...tf, fontSize: 22, marginBottom: 12 }}>✏️ Play vs Computer</h3>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10 }}>
+              {([["🌱", "Easy", "easy", "neo-btn"], ["⚡", "Medium", "medium", "neo-btn-blue"], ["🔥", "Hard", "hard", "neo-btn-red"]] as const).map(([e, l, d, cls]) => (
+                <button key={d} onClick={() => startAi(d)} className={cls} style={{ padding: "14px 0", fontSize: 15, textAlign: "center", fontFamily: "inherit", borderRadius: 14 }}>
+                  <div style={{ fontSize: 22, marginBottom: 3 }}>{e}</div>{l}
+                </button>
+              ))}
             </div>
           </div>
 
-          {/* 100 Levels */}
-          <button
-            onClick={() => setScreen("levels")}
-            className="neo-card w-full text-left animate-slide-up cursor-pointer hover:scale-[1.01] transition-transform"
-          >
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="font-bold text-lg flex items-center gap-2" style={{ color: "#2d3748" }}>
-                  🏆 100 Levels
-                </h3>
-                <p className="text-sm mt-1" style={{ color: "#718096" }}>
-                  Progress through increasingly difficult challenges
-                </p>
-                <div className="mt-2">
-                  <div className="w-full h-2 rounded-full" style={{ background: "#d1d9e6" }}>
-                    <div
-                      className="h-2 rounded-full transition-all"
-                      style={{
-                        width: `${Math.min(user.currentLevel, 100)}%`,
-                        background: "linear-gradient(90deg, #6c5ce7, #a29bfe)",
-                      }}
-                    />
-                  </div>
-                  <p className="text-xs mt-1" style={{ color: "#718096" }}>
-                    Level {user.currentLevel} / 100
-                  </p>
-                </div>
-              </div>
-              <span className="text-3xl">→</span>
-            </div>
-          </button>
-
-          {/* Daily Challenge */}
-          <button
-            onClick={() => startAiGame("hard", undefined, true)}
-            className="neo-card w-full text-left animate-slide-up cursor-pointer hover:scale-[1.01] transition-transform"
-          >
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="font-bold text-lg flex items-center gap-2" style={{ color: "#2d3748" }}>
-                  📅 Daily Challenge
-                </h3>
-                <p className="text-sm mt-1" style={{ color: "#718096" }}>
-                  A new challenge every day! Can you beat today&apos;s puzzle?
-                </p>
-              </div>
-              <span className="text-3xl">→</span>
-            </div>
-          </button>
-
-          {/* Multiplayer */}
-          <button
-            onClick={() => setScreen("friends")}
-            className="neo-card w-full text-left animate-slide-up cursor-pointer hover:scale-[1.01] transition-transform"
-          >
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="font-bold text-lg flex items-center gap-2" style={{ color: "#2d3748" }}>
-                  👥 Play with Friends
-                </h3>
-                <p className="text-sm mt-1" style={{ color: "#718096" }}>
-                  Invite friends by username and play together
-                </p>
-              </div>
-              <span className="text-3xl">→</span>
-            </div>
-          </button>
-        </div>
-
-        {/* Footer */}
-        <div className="text-center mt-8 mb-4">
-          <p className="text-xs" style={{ color: "#a3b1c6" }}>
-            Tic Tac Toe Arena • Made with ❤️
-          </p>
-        </div>
-      </div>
-    </div>
-  );
-}
+          {/* 100
