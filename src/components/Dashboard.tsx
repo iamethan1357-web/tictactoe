@@ -160,6 +160,7 @@ export default function Dashboard({ user, onLogout, onUserUpdate }: DashboardPro
             ← Back
           </button>
           <GameBoard
+            key={gameId}
             gameId={gameId}
             mode="ai"
             user={user}
