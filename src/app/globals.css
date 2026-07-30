@@ -247,3 +247,24 @@ body {
   from { opacity: 0; transform: translateX(100px); }
   to { opacity: 1; transform: translateX(0); }
 }
+.neo-btn-success {
+  background: linear-gradient(145deg, #00d2a0, #00a37a);
+  box-shadow: 5px 5px 10px #a3b1c6, -5px -5px 10px #ffffff;
+  border-radius: 12px;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  color: white;
+  font-weight: 600;
+  padding: 12px 24px;
+}
+
+.neo-btn-success:hover {
+  background: linear-gradient(145deg, #00e0aa, #00b888);
+  box-shadow: 3px 3px 6px #a3b1c6, -3px -3px 6px #ffffff;
+}
+
+.neo-btn-success:active {
+  box-shadow: inset 3px 3px 6px #009a6a, inset -3px -3px 6px #00d2a0;
+}
+
